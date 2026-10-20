@@ -1,0 +1,149 @@
+=== Dataset: one log file per system component ===
+File  Entries  First timestamp         Last timestamp          Main Hadoop class (share)                Levels
+p0         39  2015-10-18 18:01:51,775 2015-10-18 18:06:28,248 Server (41%)                             {'INFO': 28, 'WARN': 9, 'ERROR': 2}
+p1        758  2015-10-18 18:01:54,791 2015-10-18 18:10:54,546 RMContainerAllocator (59%)               {'INFO': 464, 'ERROR': 148, 'WARN': 146}
+p2        653  2015-10-18 18:05:27,570 2015-10-18 18:10:55,202 Client (50%)                             {'WARN': 653}
+p3        134  2015-10-18 18:01:53,447 2015-10-18 18:06:28,248 TaskAttemptImpl (45%)                    {'INFO': 134}
+p4         53  2015-10-18 18:01:47,978 2015-10-18 18:01:53,713 AsyncDispatcher (17%)                    {'INFO': 53}
+p5        314  2015-10-18 18:02:02,510 2015-10-18 18:06:28,217 TaskAttemptListenerImpl (100%)           {'INFO': 312, 'FATAL': 2}
+p6         49  2015-10-18 18:01:57,291 2015-10-18 18:06:28,217 ContainerLauncherImpl (73%)              {'INFO': 49}
+
+=== Part 1: Divide-and-Conquer K-Way Merge (lazy loading) ===
+Merged 7 streams (p0, p1, p2, p3, p4, p5, p6) into 2000 entries in 22.6 ms
+Input entries: 2000  Output entries: 2000  No entries lost: True
+Entries per source in output: {'p4': 53, 'p0': 39, 'p3': 134, 'p1': 758, 'p6': 49, 'p5': 314, 'p2': 653}
+Rows read from each file before the first merged entry was written: {'p0': 1, 'p1': 1, 'p2': 1, 'p3': 1, 'p4': 1, 'p5': 1, 'p6': 1}
+Peak number of entries held in memory during the merge: 7 (K = 7 streams, total entries = 2000)
+Output is chronologically sorted: True
+Output: C:\Users\ggnor\Desktop\Files\VSCode\CMPSC463_455\hadoop_log_analysis\outputs\merged_log.csv
+
+=== Part 2: Fault Dependency Analysis with Strassen's Algorithm ===
+Matrix size: 7 x 7 (not a power of 2, padded to 8 x 8 inside Strassen)
+
+Transition counts (how many times Y immediately followed X):
+     p0  p1  p2  p3  p4  p5  p6
+ p0  18   3   1   7   3   7   0
+ p1   6 388 282  10   0  72   0
+ p2   1 290 359   0   0   2   0
+ p3   5   2   2 102   1   9  13
+ p4   3   0   0   2  48   0   0
+ p5   4  71   8   5   0 218   8
+ p6   2   4   1   8   0   6  28
+
+Dependency matrix A (1 = direct dependency X -> Y):
+   p0 p1 p2 p3 p4 p5 p6
+p0  1  1  1  1  1  1  0
+p1  1  1  1  1  0  1  0
+p2  1  1  1  0  0  1  0
+p3  1  1  1  1  1  1  1
+p4  1  0  0  1  1  0  0
+p5  1  1  1  1  0  1  1
+p6  1  1  1  1  0  1  1
+
+A^2 (number of two-hop walks X -> ? -> Y):
+   p0 p1 p2 p3 p4 p5 p6
+p0  6  5  5  5  3  5  2
+p1  5  5  5  4  2  5  2
+p2  4  4  4  3  1  4  1
+p3  7  6  6  6  3  6  3
+p4  3  2  2  3  3  2  1
+p5  6  6  6  5  2  6  3
+p6  6  6  6  5  2  6  3
+
+A^3 (number of three-hop walks X -> ? -> ? -> Y):
+   p0 p1 p2 p3 p4 p5 p6
+p0 31 28 28 26 14 28 12
+p1 28 26 26 23 11 26 11
+p2 21 20 20 17  8 20  8
+p3 37 34 34 31 16 34 15
+p4 16 13 13 14  9 13  6
+p5 34 32 32 28 13 32 14
+p6 34 32 32 28 13 32 14
+
+Verification: Strassen A^2 == naive A^2: True, Strassen A^3 == naive A^3: True
+Scalar multiplications used by Strassen for A^2 and A^3 together: 686 (naive on 7 x 7 would use 686)
+
+Strongest direct dependencies (by number of transitions):
+  p1 -> p1: 388 transitions (51% of events after p1)
+  p2 -> p2: 359 transitions (55% of events after p2)
+  p2 -> p1: 290 transitions (44% of events after p2)
+  p1 -> p2: 282 transitions (37% of events after p1)
+  p5 -> p5: 218 transitions (69% of events after p5)
+  p3 -> p3: 102 transitions (76% of events after p3)
+  p1 -> p5: 72 transitions (9% of events after p1)
+  p5 -> p1: 71 transitions (23% of events after p5)
+
+Shortest dependency distance between ordered component pairs:
+  1-hop: 37 pairs (see A)
+  2-hop only: 12 pairs p0->p6, p1->p4, p1->p6, p2->p3, p2->p4, p2->p6, p4->p1, p4->p2, p4->p5, p4->p6, p5->p4, p6->p4
+  3-hop only: 0 pairs 
+  unreachable: 0 pairs 
+
+Strassen vs naive multiplication on random 0/1 matrices (leaf size 8):
+     n padded  Strassen (s)  naive (s)  Strassen mults  naive mults match
+     7      8        0.0000     0.0000             512          343 True
+    16     16        0.0004     0.0002            3584         4096 True
+    33     64        0.0190     0.0021          175616        35937 True
+    64     64        0.0187     0.0142          175616       262144 True
+   100    128        0.1306     0.0548         1229312      1000000 True
+   128    128        0.1303     0.1197         1229312      2097152 True
+
+=== Part 3: Divide-and-Conquer Burst Detection ===
+Parameters: T = 1000 ms, M = 10 events, B = 32 entries
+Total bursts detected: 10 (1 local, 9 cross-boundary)
+Distinct bursty periods after merging overlapping bursts: 10
+Events inside at least one burst: 241 of 2000
+
+List of bursts:
+   # Start                   End                     Span ms Events Kind            Components in burst
+   1 2015-10-18 18:01:51,197 2015-10-18 18:01:52,088     891     25 cross-boundary  p4:22 p0:3
+   2 2015-10-18 18:01:53,822 2015-10-18 18:01:53,885      63     31 local           p3:43 p0:1
+   3 2015-10-18 18:01:56,916 2015-10-18 18:01:57,447     531     21 cross-boundary  p3:11 p1:6 p6:4
+   4 2015-10-18 18:03:55,923 2015-10-18 18:03:56,798     875     30 cross-boundary  p3:14 p6:6 p1:6 p5:4
+   5 2015-10-18 18:04:04,877 2015-10-18 18:04:05,830     953     19 cross-boundary  p3:6 p1:5 p5:4 p6:4
+   6 2015-10-18 18:04:07,908 2015-10-18 18:04:08,877     969     19 cross-boundary  p3:6 p1:5 p5:4 p6:4
+   7 2015-10-18 18:04:09,096 2015-10-18 18:04:10,002     906     15 cross-boundary  p1:6 p6:4 p3:4 p5:1
+   8 2015-10-18 18:04:50,208 2015-10-18 18:04:51,145     937     20 cross-boundary  p5:7 p3:5 p1:5 p6:3
+   9 2015-10-18 18:06:25,232 2015-10-18 18:06:26,139     907     25 cross-boundary  p3:7 p0:7 p5:4 p6:3 p2:2 p1:2
+  10 2015-10-18 18:06:28,092 2015-10-18 18:06:28,248     156     23 cross-boundary  p3:7 p0:5 p5:4 p6:3 p2:2 p1:2
+
+Parameter sensitivity (total = local + cross; regions = distinct bursty periods):
+   T ms   M   B total local cross regions
+    250   5  16    23     3    20      22
+    250   5  32    11     1    10      11
+    250   5  64     6     0     6       6
+    250  10  16    16     3    13      15
+    250  10  32     8     1     7       8
+    250  10  64     4     0     4       4
+    250  20  16     3     0     3       3
+    250  20  32     3     1     2       3
+    250  20  64     2     0     2       2
+    500   5  16    32     4    28      31
+    500   5  32    15     1    14      15
+    500   5  64     8     0     8       8
+    500  10  16    19     4    15      18
+    500  10  32     9     1     8       9
+    500  10  64     5     0     5       5
+    500  20  16     4     0     4       4
+    500  20  32     4     1     3       4
+    500  20  64     2     0     2       2
+   1000   5  16    40    12    28      37
+   1000   5  32    21     1    20      21
+   1000   5  64    13     0    13      13
+   1000  10  16    22    12    10      19
+   1000  10  32    10     1     9      10
+   1000  10  64     6     0     6       6
+   1000  20  16     7     0     7       7
+   1000  20  32     7     1     6       7
+   1000  20  64     4     0     4       4
+   2000   5  16   115    23    92     105
+   2000   5  32    59     3    56      59
+   2000   5  64    30     0    30      30
+   2000  10  16    25    23     2      15
+   2000  10  32    13     3    10      13
+   2000  10  64     7     0     7       7
+   2000  20  16    15     0    15      12
+   2000  20  32     9     3     6       9
+   2000  20  64     6     0     6       6
+
+Outputs written to C:\Users\ggnor\Desktop\Files\VSCode\CMPSC463_455\hadoop_log_analysis\outputs: merged_log.csv, dependency_matrix_A*.csv, transition_counts.csv, bursts.csv, dependency_heatmaps.png, burst_timeline.png, results_summary.txt
